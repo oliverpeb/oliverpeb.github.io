@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sag 03: Attribuering af phishing-infrastruktur | Oliver Frost Harboe</title>
+<meta name="description" content="OSINT-undersøgelse af et phishing-domæne, fra første indikator gennem passiv DNS til en begrundet attribuering baseret udelukkende på åbne kilder.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="../index.html" class="nav-name">Oliver Frost Harboe</a>
+    <ul class="nav-links">
+      <li><a class="backlink" href="../index.html#sager">← Alle sager</a></li>
+    </ul>
+  </div>
+</header>
+
+<div class="wrap case-hero">
+  <p class="eyebrow">Sag 03 — OSINT-efterforskning</p>
+  <h1>Attribuering af phishing-infrastruktur</h1>
+  <div class="case-facts">
+    <div><span class="label">Metode</span><span class="value">Infrastrukturpivotering via passiv DNS</span></div>
+    <div><span class="label">Kilder</span><span class="value">Udelukkende åbne</span></div>
+    <div><span class="label">Værktøjer</span><span class="value">VirusTotal, AlienVault OTX, WHOIS</span></div>
+    <div><span class="label">Konklusion</span><span class="value">Statsstøttet aktør, moderat sikkerhed</span></div>
+  </div>
+</div>
+
+<div class="wrap prose">
+
+  <h2>Kort</h2>
+  <p>Et domæne knyttet til en hackingkampagne i 2022 skulle undersøges. Formålet var at fastslå, hvad domænet havde været brugt til, og hvilken aktør der stod bag. Analysen bygger udelukkende på åbne kilder og kan gentages af enhver.</p>
+
+  <h2>Fremgangsmåde</h2>
+  <p>Jeg startede bredt og indsnævrede undervejs. Første opslag i VirusTotal viste, at 12 ud af 95 leverandører markerede domænet som ondsindet, primært kategoriseret som phishing og malware. Det etablerer, at domænet er interessant, men siger endnu intet om hvem.</p>
+  <p>WHOIS-data var det første reelle spor. Registrantoplysningerne bestod af hash-lignende hex-strenge frem for navne og adresser, og registrantland var angivet som KR. Kombinationen af skjult registrant og koreansk tilknytning gav en retning at arbejde videre i.</p>
+  <p>Domænenavnet selv pegede samme vej. Naver er den største sydkoreanske søge- og mailportal, og navnet er konstrueret til at ligne den. Det indsnævrer sandsynligt offer til sydkoreanske brugere.</p>
+  <p>Herfra gik jeg til passiv DNS. Domænet havde over tid peget på tre IP-adresser, og en af dem viste sig at være omtalt i offentlige analyser af Naver-relateret phishing. Via den IP fandt jeg et beslægtet domæne, som jeg ikke selv ville have fundet frem til ud fra det oprindelige domæne alene.</p>
+  <p>Det domæne blev vendepunktet. Dets passive DNS-historik gav to yderligere IP-adresser, og pivoteringen videre gennem dem afdækkede to domæner, der begge er attribueret offentligt af Google. Det ene i deres analyse af nordkoreanske trusler, det andet i deres opfølgning på en kampagne rettet mod sikkerhedsforskere, hvor aktøren beskrives som statsstøttet.</p>
+  <p>Kæden bandt dermed det oprindelige domæne sammen med infrastruktur, der uafhængigt er tilskrevet en nordkoreansk aktør.</p>
+
+  <h2>Vurdering</h2>
+  <p>Domænet indgår med rimelig sandsynlighed i en credential-phishing-kampagne udført af Lazarus Group. Vurderingen hviler på tre ben:</p>
+  <ul>
+    <li>Infrastrukturoverlap gennem passiv DNS til domæner, Google har attribueret.</li>
+    <li>Flere sikkerhedsanalyser, der forbinder Naver-spoofede domæner med samme aktør.</li>
+    <li>Registreringsmønstret, hvor AlienVault OTX indikerer, at domænet er genereret af en domain generation algorithm.</li>
+  </ul>
+
+  <h2>Hvad jeg ville gøre anderledes</h2>
+  <p><strong>Jeg afviste ikke den konkurrerende hypotese.</strong> Én kilde koblede domænet til Wizard Spider frem for Lazarus. Jeg lod det spor ligge, fordi hovedparten af beviserne pegede den anden vej. Det er den forkerte håndtering. En konkurrerende hypotese skal afvises aktivt og begrundet, ikke bare vælges fra. Domæner skifter i øvrigt ejer og genbruges, så begge kan i princippet være rigtige på forskellige tidspunkter.</p>
+  <p><strong>Jeg konkluderede uden at angive sikkerhedsgrad.</strong> Attribuering bør formuleres med eksplicit konfidensniveau, fordi forskellen på "vurderes med moderat sikkerhed" og "er bekræftet" har konsekvenser for, hvad modtageren gør med analysen.</p>
+  <p><strong>De tre kilder, jeg behandlede som uafhængige bekræftelser, er det måske ikke.</strong> Sikkerhedsblogs citerer hinanden, og tre artikler kan bygge på én oprindelig rapport. Det burde jeg have verificeret, før jeg vægtede dem som selvstændig evidens.</p>
+  <p><strong>Jeg tolkede de skjulte registrantoplysninger som bevidst anonymisering fra aktørens side.</strong> Efter GDPR redigerer mange registrarer rutinemæssigt disse felter. Den alternative forklaring burde have stået i analysen.</p>
+
+  <div class="case-foot">
+    <a class="btn" href="../index.html#sager">← Alle sager</a>
+    <a class="btn ghost" href="../index.html#kontakt">Kontakt mig</a>
+  </div>
+
+</div>
+
+<footer>
+  Oliver Frost Harboe — sidst opdateret august 2026
+</footer>
+
+</body>
+</html>

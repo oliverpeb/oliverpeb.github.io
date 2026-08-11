@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sag 01: Anomalibaseret IDS på Isolation Forest | Oliver Frost Harboe</title>
+<meta name="description" content="Undersøgelse af anomalibaseret intrusion detection med Isolation Forest, fra datasætvalg og arkitektur til evaluering af modellens stabilitet og vurdering mod AI Act, GDPR, NIST CSF og ISO 27001.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="../index.html" class="nav-name">Oliver Frost Harboe</a>
+    <ul class="nav-links">
+      <li><a class="backlink" href="../index.html#sager">← Alle sager</a></li>
+    </ul>
+  </div>
+</header>
+
+<div class="wrap case-hero">
+  <p class="eyebrow">Sag 01 — Bachelorprojekt</p>
+  <h1>Anomalibaseret IDS på Isolation Forest</h1>
+  <div class="case-facts">
+    <div><span class="label">Periode</span><span class="value">Nov 2025 – jan 2026</span></div>
+    <div><span class="label">Min rolle</span><span class="value">Produkt, datagrundlag og evaluering</span></div>
+    <div><span class="label">Datasæt</span><span class="value">NFS-2023-TE</span></div>
+    <div><span class="label">Værktøjer</span><span class="value">Python, scikit-learn, pandas, PyQt</span></div>
+  </div>
+</div>
+
+<div class="wrap prose">
+
+  <h2>Kort</h2>
+  <p>Traditionelle IDS'er fanger kendte angreb via signaturer, men er blinde over for det, der ikke er set før. Opgaven var at bygge et alternativ, der lærer normal netværksadfærd og markerer afvigelser, og derefter vurdere det mod de rammeværker, en organisation reelt skal svare til.</p>
+  <p>Bachelorprojektet blev skrevet i gruppe med Lasse Huusmann Knøfler, August Overgaard Grønbech og Faisal Hassan Ali Abdi. Jeg stod for produktet og for projektets analyse af defensiv AI i sikkerhedsdrift. Denne side beskriver den del.</p>
+
+  <h2>Datagrundlag</h2>
+  <p>Valget af datasæt blev truffet før valget af algoritme. Pekar og Jozsa dokumenterer, at de datasæt feltet oftest bruger, herunder CICIDS-2017 og dets afledte versioner, indeholder strukturelle fejl: manglende flow-timeouts, forkerte TCP-flag ved sessionsudløb og betydelige mængder manglende værdier. En model trænet på den slags data kan se præcis ud på papiret og fejle i drift.</p>
+  <p>Jeg valgte derfor NFS-2023-TE, som er konstrueret specifikt for at rette de problemer. Det leveres i rå form uden labels, hvilket afspejler virkelige miljøer, hvor netværkstelemetri sjældent er annoteret, og som derfor peger på unsupervised metoder.</p>
+
+  <h2>Arkitektur</h2>
+  <p>Systemet kører i fem lag. Indlæsning med kolonnevalidering og standardisering, så datasæt fra forskellige kilder ender i samme skema. Feature-forberedelse med normalisering via <code>StandardScaler</code>, så et felt med byte-tal i millioner ikke dominerer over portnumre under 65535. Detektion med Isolation Forest. Efterbehandling med hashing og begrundelser. Præsentation gennem CSV-output og en grafisk grænseflade.</p>
+  <p>Modellen trænes i to faser. Findes der labels, bruges BENIGN-rækkerne som baseline. Findes de ikke, antages de første 70 procent at være normal trafik. Baseline gemmes til disk og genbruges på tværs af kørsler, så systemet fastholder sin forståelse af normalen frem for at starte forfra. Nye data behandles i batches og scores mod den eksisterende model, hvorefter de rækker, modellen vurderer som normale, lægges tilbage i baseline, og modellen gentrænes en enkelt gang.</p>
+  <p>Hver alarm får en kort begrundelse ud fra regelbaserede kriterier, for eksempel usædvanligt lang session eller destinationsport over 50000. Formålet er, at en analytiker kan se hvorfor, ikke bare at.</p>
+  <p>IP-adresser og tidsstempler hashes, før de skrives til log. Netværkstelemetri kan henføres til personer, og GDPR's princip om dataminimering gælder også for sikkerhedsdata.</p>
+
+  <h2>Resultat</h2>
+  <p>Datasættet blev kørt igennem elleve gange med gentræning efter hver kørsel, for at se om modellen fandt et stabilt leje.</p>
+  <div class="finding">
+    <p class="stepnote">Kørsel 1–3</p>
+    <p>Antallet af anomalier steg kraftigt, fra 1 til 1851. Modellen havde endnu ingen klar baseline, så selv små afvigelser blev markeret.</p>
+  </div>
+  <div class="finding">
+    <p class="stepnote">Kørsel 4–6</p>
+    <p>Væksten aftog: 2018, 2567, 2795. Modellen genkendte i stigende grad datasættets struktur og placerede flere gråzonepunkter i normalen.</p>
+  </div>
+  <div class="finding">
+    <p class="stepnote">Kørsel 7–11</p>
+    <p>Ændringerne var marginale og landede på 2848. Modellen havde opbygget en stabil og reproducerbar forståelse af datasættet frem for at drive.</p>
+  </div>
+
+  <h2>Vurdering mod rammeværkerne</h2>
+  <p>En detektor der virker er ikke det samme som en detektor der må sættes i drift. De tre rammeværker stiller tre forskellige spørgsmål. Må systemet bruges, må dataene behandles, og hvor i sikkerhedsarbejdet hører det hjemme.</p>
+
+  <div class="finding">
+    <p class="stepnote">AI Act</p>
+    <p>Klassificeringen efter artikel 6 følger anvendelseskonteksten, ikke funktionaliteten. Det samme system kan lande i forskellige risikokategorier afhængigt af hvor det står. Højrisiko udløser krav til datastyring (art. 10), teknisk dokumentation (art. 11) og logning af historisk output (art. 12). Et IDS i et almindeligt virksomhedsnetværk rammer ikke højrisiko, og de krav gælder derfor ikke formelt. Det er en dårlig grund til at lade være. Fejltilstanden i en anomalimodel er, at den lærer et angreb som normalt, og den fejl er usynlig uden dokumenteret datagrundlag og sporbart output.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">GDPR</p>
+    <p>Det er den ramme, der faktisk ændrede koden. Artikel 5 om dataminimering og formålsbegrænsning gælder, fordi NetFlow, DNS-opslag og autentificeringslogs kan henføres til personer. Konsekvensen i produktet er, at IP og tidsstempel hashes, før de skrives til alarmloggen. Den anden konsekvens er mindre behagelig. Kravet er en del af grunden til, at modellen aldrig blev trænet på reel trafik, fordi anonymisering rammer netop de felter, modellen bruger. Efterlevelse og modelkvalitet trækker mod hinanden her, og det er en reel konflikt, ikke en fodnote.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">NIST CSF 2.0</p>
+    <p>Systemet hører hjemme under Detect og berører Respond. Det bidrager ikke til Identify, Protect eller Govern. Værdien måles i MTTD og MTTR. Uden kobling til SIEM eller EDR stopper det reelt ved Detect, fordi systemet producerer en alarm og så ikke mere. Det er en snæver skive af rammeværket, og det er værd at sige højt frem for at lade et framework-navn dække over det.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">ISO 27001:2022</p>
+    <p>Produktet udgør evidens for A.8.15 om logning, A.8.16 om overvågningsaktiviteter og A.6.8 om rapportering af sikkerhedshændelser. Kontrollen er ikke, at man har et IDS. Kontrollen er, at overvågning finder sted, at den er dokumenteret, og at hændelser rapporteres ad en defineret vej. Værktøjet er evidens, ikke efterlevelse. Gentræning af baseline er desuden i sig selv en ændring af en sikkerhedskontrol og skal dokumenteres, ellers driver normalen, uden at nogen kan sige hvornår eller hvorfor.</p>
+  </div>
+
+  <p>Vurderingen ændrede én ting i koden, nemlig hashingen. Resten var placering og stillingtagen. Det er et ærligt regnskab. Rammeværker omskriver sjældent en algoritme. De afgør, om den må stå i produktion, og hvad man skal kunne fremvise, når nogen spørger.</p>
+
+  <h2>Hvad jeg ville gøre anderledes</h2>
+  <p><strong>Jeg målte stabilitet og behandlede det som om jeg havde målt præcision.</strong> Det er den vigtigste fejl i projektet. At antallet af anomalier stabiliserer sig på 2848 fortæller, at modellen er konsistent, ikke at de 2848 er de rigtige. NFS-2023-TE indeholder faktisk annoterede angrebsscenarier, så jeg kunne have holdt output op mod facit og regnet precision og recall ud. Det gjorde jeg ikke, og uden det ved jeg reelt ikke, hvor godt systemet virker.</p>
+  <p><strong>Jeg beskrev risikoen for baseline-poisoning uden at teste den.</strong> Antagelsen om, at de første 70 procent er normal trafik, er ubegrundet, og hvis der ligger angreb i den del, lærer modellen dem som normale. Jeg burde have indsat kendte angreb i træningsdata med vilje og målt, hvor meget detektionen faldt. Det havde gjort begrænsningen konkret frem for teoretisk.</p>
+  <p><strong>Jeg beskrev AI Act-klassificeringen uden at klassificere mit eget system.</strong> Jeg gennemgik kriterierne i artikel 6 og konstaterede, at kategorien afhænger af anvendelseskonteksten, men jeg tog aldrig skridtet og placerede produktet. Det er den ene konklusion, en compliance-ansvarlig ville have bedt om, og den manglede.</p>
+  <p><strong>Feltet <code>file_entropy</code> er ikke entropi.</strong> Det er logaritmen af antal bytes, altså et volumenmål. Navnet er misvisende, og værdien korrelerer stærkt med <code>Netflow_Bytes</code>, som allerede er en feature. Reelt vægter modellen dermed datamængde to gange.</p>
+  <p><strong>Contamination blev sat til 0,02 som fornuftigt udgangspunkt</strong>, ikke som resultat af noget. Med et annoteret datasæt kunne parameteren have været afledt af den faktiske andel af angreb.</p>
+  <p><strong>Systemet kører isoleret.</strong> Uden kobling til SIEM eller EDR står alarmerne uden kontekst fra resten af miljøet, og Isolation Forest vurderer hver observation for sig. Det gør den principielt blind over for angreb, der først bliver til en trussel, når flere små hændelser ses samlet.</p>
+
+  <div class="case-foot">
+    <a class="btn" href="../index.html#sager">← Alle sager</a>
+    <a class="btn ghost" href="../index.html#kontakt">Kontakt mig</a>
+  </div>
+
+</div>
+
+<footer>
+  Oliver Frost Harboe — sidst opdateret august 2026
+</footer>
+
+</body>
+</html>

